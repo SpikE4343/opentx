@@ -475,3 +475,5 @@ uint8_t outputTelemetryBufferTrigger = 0;
 #if defined(LUA)
 Fifo<uint8_t, LUA_TELEMETRY_INPUT_FIFO_SIZE> * luaInputTelemetryFifo = NULL;
 #endif
+
+BfFifo_t* betaflightInputTelemetryFifo = NULL;

@@ -98,6 +98,7 @@ set(SRC
   telemetry/frsky.cpp
   telemetry/frsky_d_arm.cpp
   telemetry/frsky_sport.cpp
+  telemetry/frsky_sport_betaflight_msp.cpp
   crc16.cpp
   vario.cpp
   )

@@ -1,0 +1,93 @@
+/*
+ * Copyright (C) OpenTX
+ *
+ * Based on code named
+ *   th9x - http://code.google.com/p/th9x
+ *   er9x - http://code.google.com/p/er9x
+ *   gruvin9x - http://code.google.com/p/gruvin9x
+ *
+ * License GPLv2: http://www.gnu.org/licenses/gpl-2.0.html
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+#ifndef BETAFLIGHT_MSP_MESSAGES_H
+#define BETAFLIGHT_MSP_MESSAGES_H
+
+#include "opentx.h"
+
+/**
+ * Request frame format:
+ * - Header: 1 byte
+ *   - Reserved: 2 bits (future use)
+ *   - Error-flag: 1 bit
+ *   - Start-flag: 1 bit
+ *   - CSeq: 4 bits
+ *
+ * - MSP payload:
+ *   - if Error-flag == 0:
+ *     - size: 1 byte
+ *     - payload
+ *     - CRC (request type included)
+ *   - if Error-flag == 1:
+ *     - size: 1 byte (== 1)
+ *     - error: 1 Byte
+ *       - 0: Version mismatch (type=0)
+ *       - 1: Sequence number error
+ *       - 2: MSP error
+ *     - CRC (request type included)
+ */
+PACK(struct BFMspRequestFrame_t 
+{
+    uint8_t unused : 2;
+    uint8_t error : 1;
+    uint8_t start : 1;
+    uint8_t sequence : 4;
+    uint8_t size;
+    uint8_t payload; // variable size
+});
+
+// MSP_STATUS
+PACK(struct BFMspStatusResponseMsg_t 
+{
+    uint16_t serialTime;
+    uint16_t i2cErrors;
+    uint16_t sensors;
+    uint32_t flightModes;
+    uint8_t profile;
+    uint16_t systemLoad;
+    uint16_t gyroTime;
+    uint8_t flightModeFlagsCount;
+    uint8_t* flightModeFlags;
+});
+
+
+// MSP_RC_TUNING
+PACK(struct BFMspRcResponseMsg_t 
+{
+    uint8_t rcRate;
+    uint8_t rcExpo;
+    uint8_t rates[3]; // R, P, Y
+    uint8_t dynThrottlePID; // TPAs
+    uint8_t throttleMid;
+    uint8_t throttleExpo;
+    uint16_t throttle_bp;
+    uint8_t rcYawExpo;
+    uint8_t rcYawRate;
+
+});
+
+// MSP_PID
+PACK(struct BFMspPidResponseMsg_t 
+{
+    uint8_t roll[3]; // P, I, D
+    uint8_t pitch[3]; // P, I, D
+    uint8_t yaw[3]; // P, I, D
+});
+#endif

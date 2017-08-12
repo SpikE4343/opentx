@@ -102,6 +102,8 @@ enum MenuModelIndexes {
   MENU_MODEL_TELEMETRY_FRSKY,
   CASE_MAVLINK(MENU_MODEL_TELEMETRY_MAVLINK)
   MENU_MODEL_DISPLAY,
+  MENU_MODEL_BETAFLIGHT_MSP_SMARTPORT,
+  
   MENU_MODEL_PAGES_COUNT
 };
 
@@ -122,6 +124,7 @@ void menuModelLogicalSwitches(event_t event);
 void menuModelSpecialFunctions(event_t event);
 void menuModelCustomScripts(event_t event);
 void menuModelTelemetryFrsky(event_t event);
+void menuModelBetaflightMspSmartPort(event_t event);
 void menuModelDisplay(event_t event);
 
 extern const MenuHandlerFunc menuTabModel[MENU_MODEL_PAGES_COUNT];

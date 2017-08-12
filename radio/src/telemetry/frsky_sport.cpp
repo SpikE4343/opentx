@@ -122,6 +122,32 @@ void sportProcessTelemetryPacket(uint16_t id, uint8_t subId, uint8_t instance, u
   }
 }
 
+template <class T, int N>
+void queueTelemetryDataPacket(Fifo<T,N>* fifo, uint8_t physicalId, uint8_t primId, uint16_t id, uint32_t data )
+{
+  if (fifo == NULL)
+  {
+    return;
+  }
+
+  uint32_t size = sizeof(SportTelemetryPacket);
+  if (fifo->hasSpace(size))
+  {
+    return;
+  }
+
+  SportTelemetryPacket packet;
+  packet.physicalId = physicalId;
+  packet.primId = primId;
+  packet.dataId = id;
+  packet.value = data;
+
+  for (uint8_t i=0; i<size; ++i)
+  {
+    fifo->push(packet.raw[i]);
+  }
+}
+
 void sportProcessTelemetryPacket(const uint8_t * packet)
 {
   uint8_t physicalId = packet[0] & 0x1F;
@@ -212,16 +238,8 @@ void sportProcessTelemetryPacket(const uint8_t * packet)
         }
         else if (id >= DIY_STREAM_FIRST_ID && id <= DIY_STREAM_LAST_ID) {
 #if defined(LUA)
-          if (luaInputTelemetryFifo && luaInputTelemetryFifo->hasSpace(sizeof(SportTelemetryPacket))) {
-            SportTelemetryPacket luaPacket;
-            luaPacket.physicalId = physicalId;
-            luaPacket.primId = primId;
-            luaPacket.dataId = id;
-            luaPacket.value = data;
-            for (uint8_t i=0; i<sizeof(SportTelemetryPacket); i++) {
-              luaInputTelemetryFifo->push(luaPacket.raw[i]);
-            }
-          }
+          queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
+          queueTelemetryDataPacket(betaflightInputTelemetryFifo, physicalId, primId, id, data );
 #endif
         }
         else {
@@ -232,16 +250,8 @@ void sportProcessTelemetryPacket(const uint8_t * packet)
   }
 #if defined(LUA)
   else if (primId == 0x32) {
-    if (luaInputTelemetryFifo && luaInputTelemetryFifo->hasSpace(sizeof(SportTelemetryPacket))) {
-      SportTelemetryPacket luaPacket;
-      luaPacket.physicalId = physicalId;
-      luaPacket.primId = primId;
-      luaPacket.dataId = id;
-      luaPacket.value = data;
-      for (uint8_t i=0; i<sizeof(SportTelemetryPacket); i++) {
-        luaInputTelemetryFifo->push(luaPacket.raw[i]);
-      }
-    }
+    queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
+    queueTelemetryDataPacket(betaflightInputTelemetryFifo, physicalId, primId, id, data );
   }
 #endif
 }

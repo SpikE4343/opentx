@@ -147,11 +147,11 @@ inline uint8_t modelTelemetryProtocol()
     return PROTOCOL_PULSES_CROSSFIRE;
   }
 #endif
-     
+
   if (!IS_INTERNAL_MODULE_ENABLED() && g_model.moduleData[EXTERNAL_MODULE].type == MODULE_TYPE_PPM) {
     return g_model.telemetryProtocol;
   }
-  
+
 #if defined(MULTIMODULE)
   if (!IS_INTERNAL_MODULE_ENABLED() && g_model.moduleData[EXTERNAL_MODULE].type == MODULE_TYPE_MULTIMODULE) {
     return PROTOCOL_MULTIMODULE;
@@ -196,5 +196,13 @@ inline void telemetryOutputSetTrigger(uint8_t byte)
 #define LUA_TELEMETRY_INPUT_FIFO_SIZE  256
 extern Fifo<uint8_t, LUA_TELEMETRY_INPUT_FIFO_SIZE> * luaInputTelemetryFifo;
 #endif
+
+
+//#if defined(BETAFLIGHT)
+#define BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE  256
+typedef Fifo<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE> BfFifo_t;
+extern BfFifo_t * betaflightInputTelemetryFifo;
+
+//#endif
 
 #endif // _TELEMETRY_H_
