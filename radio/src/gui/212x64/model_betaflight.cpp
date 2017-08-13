@@ -19,6 +19,7 @@
  */
 
 #include "opentx.h"
+#include "stdio.h"
 #include "telemetry/betaflight_msp.h"
 
 #define MENU_WIDTH 8*FW
@@ -225,13 +226,14 @@ bool recvMessage()
 
   if (betaflightInputTelemetryFifo->isEmpty())
   {
-    //debugPrintf("msp fifo empty\r\n");
     return false;
   }
 
+  uint32_t size = betaflightInputTelemetryFifo->size();
+  debugPrintf("bf-buf: %u", size);
   SportTelemetryPacket packet;
 
-  if (betaflightInputTelemetryFifo->size() < sizeof(packet))
+  if ( size < sizeof(packet))
   {
     return false;
   }

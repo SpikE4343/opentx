@@ -19,6 +19,7 @@
  */
 
 #include "opentx.h"
+#include "stdio.h"
 
 #include "betaflight_msp.h"
 

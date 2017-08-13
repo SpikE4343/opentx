@@ -201,7 +201,7 @@ extern Fifo<uint8_t, LUA_TELEMETRY_INPUT_FIFO_SIZE> * luaInputTelemetryFifo;
 //#if defined(BETAFLIGHT)
 #define BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE  256
 typedef Fifo<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE> BfFifo_t;
-extern BfFifo_t * betaflightInputTelemetryFifo;
+extern Fifo<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE> * betaflightInputTelemetryFifo;
 
 //#endif
 
