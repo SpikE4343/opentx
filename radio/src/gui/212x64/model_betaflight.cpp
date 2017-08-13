@@ -21,6 +21,10 @@
 #include "opentx.h"
 #include "telemetry/betaflight_msp.h"
 
+#define MENU_WIDTH 8*FW
+#define MESSAGE_TIMEOUT_SECS 10
+#define BF_MENU_TITLE "Betaflight"
+
 enum BFPageType
 {
   PIDS_PAGE,
@@ -32,18 +36,25 @@ enum BFPageType
 };
 
 
-
-#define MENU_WIDTH 8*FW
+enum BFPageState
+{
+  PAGE_NONE,
+  PAGE_LOADING,
+  PAGE_LOADED,
+  PAGE_SAVE,
+  PAGE_SAVING
+};
 
 struct BFPage;
-
-//assert( sizeof(pageNames) == NUM_BF_PAGES);
 
 typedef void (*drawPage_t)( BFPage& page, event_t event );
 
 struct BFPage
 {
   BFPageType type;
+  BFPageState state;
+  BFMspMessageType readCmd;
+  BFMspMessageType writeCmd;
   const char* name;
   drawPage_t drawPage;
   int editMode;
@@ -52,27 +63,113 @@ struct BFPage
 
   void handleSelectedPositionInput(event_t& event);
   void handleFieldEditing(event_t& event);
+
+  void updateState();
+  
+  bool processReply(uint8_t msgType, BFMspDecoder& decoder);
 };
+
 
 
 int bfMenuPos = 0;
 int bfEditPage = -1;
 int selectedPage = 0;
-uint8_t pids[3][3];
-BFMspDecoder mspDecoder;
 
+BFConfig_t bfConfig;
+
+BFMspDecoder mspDecoder;
+BFMspEncoder mspEncoder;
+
+bool connected = false;
+bool sendingMessage = false;
+uint8_t messageReplyTimeout = 0;
+uint8_t sendMspMessageType = MSP_NONE;
 
 void drawPIDsPage( BFPage& page, event_t event );
 
 
 BFPage pages[] =
 {
-  { PIDS_PAGE,     "PIDs    ", drawPIDsPage,  0, 0, 9 },
-  { RATES_PAGE,    "Rates   ", NULL,          0, 0, 0 },
-  { THROTTLE_PAGE, "Throttle", NULL,          0, 0, 0 },
-  { VTX_PAGE,      "Video Tx", NULL,          0, 0, 0 }
+  { PIDS_PAGE,     PAGE_NONE, MSP_PID,        MSP_SET_PID,        "PIDs    ", drawPIDsPage,  0, 0, 9 },
+  { RATES_PAGE,    PAGE_NONE, MSP_RC_TUNING,  MSP_SET_RC_TUNING,  "Rates   ", NULL,          0, 0, 0 },
+  { THROTTLE_PAGE, PAGE_NONE, MSP_NONE,       MSP_NONE,           "Throttle", NULL,          0, 0, 0 },
+  { VTX_PAGE,      PAGE_NONE, MSP_VTX_CONFIG, MSP_VTX_SET_CONFIG, "Video Tx", NULL,          0, 0, 0 }
 };
 
+bool BFPage::processReply(uint8_t msgType, BFMspDecoder& decoder)
+{
+  if (!decoder.hasStarted() || !decoder.isComplete())
+  {
+    return false;
+  }
+
+  uint8_t* buffer = decoder.getMessageBuffer();
+  uint8_t size = decoder.getMessageSize();
+
+  switch (msgType)
+  {
+  case MSP_PID:
+    if (size >= sizeof(bfConfig.pids))
+    {
+      memcpy(&bfConfig.pids, buffer, sizeof(bfConfig.pids));
+    }
+    return true;
+  }
+
+  decoder.reset();
+
+  return true;
+}
+
+void BFPage::updateState()
+{
+  switch (state)
+  {
+  case PAGE_NONE:
+    if (readCmd == MSP_NONE)
+    {
+      state = PAGE_LOADED;
+    }
+    else if (connected && !sendingMessage)
+    {
+      debugPrintf("Sending message");
+      sendMspMessageType = readCmd;
+      mspEncoder.encodeMessage(readCmd, NULL, 0);
+      sendingMessage = true;
+      state = PAGE_LOADING;
+    }
+    break;
+
+  case PAGE_LOADING:
+    if (connected && sendingMessage)
+    {
+      if (processReply(sendMspMessageType, mspDecoder))
+      {
+        state = PAGE_LOADED;
+      }
+    }
+    break;
+
+  case PAGE_LOADED:
+    break;
+
+  case PAGE_SAVE:
+    if (writeCmd != MSP_NONE && connected && !sendingMessage)
+    {
+      debugPrintf("Sending save message");
+      sendMspMessageType = writeCmd;
+      mspEncoder.encodeMessage(writeCmd, NULL, 0);
+      sendingMessage = true;
+      state = PAGE_SAVING;
+    }
+    break;
+
+  case PAGE_SAVING:
+    if (sendingMessage)
+      state = PAGE_LOADED;
+    break;
+  }
+}
 void BFPage::handleSelectedPositionInput(event_t& event)
 {
   if( editMode != EDIT_SELECT_FIELD )
@@ -116,63 +213,131 @@ void BFPage::handleFieldEditing(event_t& event)
   }
 }
 
-void updateMessages()
+
+//
+//
+bool recvMessage()
 {
-  if( betaflightInputTelemetryFifo == NULL )
+  if (betaflightInputTelemetryFifo == NULL)
   {
-    return;
+    return false;
   }
 
-  if( betaflightInputTelemetryFifo->isEmpty() )
+  if (betaflightInputTelemetryFifo->isEmpty())
   {
     //debugPrintf("msp fifo empty\r\n");
-    return;
+    return false;
   }
 
   SportTelemetryPacket packet;
 
-  if( betaflightInputTelemetryFifo->size() < sizeof(packet))
+  if (betaflightInputTelemetryFifo->size() < sizeof(packet))
   {
-    return;
+    return false;
   }
 
   debugPrintf("packet recv: ");
-  for (uint8_t i=0; i<sizeof(packet); i++) 
+  for (uint8_t i = 0; i<sizeof(packet); i++)
   {
-      betaflightInputTelemetryFifo->pop(packet.raw[i]);
-      debugPrintf("%0X", packet.raw[i]);
+    betaflightInputTelemetryFifo->pop(packet.raw[i]);
+    debugPrintf("%0X", packet.raw[i]);
   }
   debugPrintf("\r\n");
 
 
-  if( !mspDecoder.decodePacket( packet ) )
+  if (!mspDecoder.decodePacket(packet))
   {
-    return;
+    return false;
   }
 
   // valid msp message decoded
   debugPrintf("message decoded!\r\n");
+
+  return true;
 }
 
+#ifdef BETAFLIGHT_MSP_SIMULATOR
+// TODO merge it with S.PORT update function when finished
+void sportOutputPushPacketSim(SportTelemetryPacket* packet)
+{
+  uint8_t buf[sizeof(SportTelemetryPacket)+1];
+  uint8_t* pos = buf+1;
+  uint16_t crc = 0;
+
+  for (uint8_t i = 1; i<sizeof(SportTelemetryPacket); i++) {
+    uint8_t byte = packet->raw[i];
+    *(pos++) = byte;
+    crc += byte; // 0-1FF
+    crc += crc >> 8; // 0-100
+    crc &= 0x00ff;
+  }
+
+  *(pos++) = 0xFF - crc;
+  buf[0] = packet->raw[0];
+
+  simHandleSmartPortMspFrame(&buf[0]);
+}
+
+#endif
+
+//
+//
+void sendMessage()
+{
+  if( mspEncoder.isComplete() )
+  {
+    return;
+  }
+
+  SportTelemetryPacket packet;
+  if( !mspEncoder.fillNextPacket(packet) )
+  {
+    return;
+  }
+  
+#ifdef BETAFLIGHT_MSP_SIMULATOR
+  sportOutputPushPacketSim(&packet);
+#else
+  sportOutputPushPacket(&packet);
+#endif
+}
+
+
+
+
+//
+//
+void updateMessages()
+{
+  connected = TELEMETRY_RSSI() > 0;
+
+  recvMessage();
+  sendMessage();
+}
+
+//
+//
 void drawPIDsPage( BFPage& page, event_t event )
 {
 //  SIMPLE_SUBMENU( "Betaflight > PIDs", 9);
   
   coord_t x = MENU_WIDTH + FW*2;
-  coord_t y = MENU_HEADER_HEIGHT + 1 + FH;
+  coord_t y = MENU_HEADER_HEIGHT + 1;
 
   int step= 28;
 
-  lcdDrawText(x + FW*6,        y, "P", 0 );
-  lcdDrawText(x + FW*6+step,   y, "I", 0 );
-  lcdDrawText(x + FW*6+step*2, y, "D", 0 );
+  lcdDrawText(x + FW*6 + (FW/2),          y, "P", 0 );
+  lcdDrawText(x + FW*6+step + (FW / 2),   y, "I", 0 );
+  lcdDrawText(x + FW*6+step*2 + (FW / 2), y, "D", 0 );
 
-  lcdDrawText(x, y+FH*1 + 2, "ROLL",  0 );
-  lcdDrawText(x, y+FH*2 + 2, "PITCH", 0 );
-  lcdDrawText(x, y+FH*3 + 2, "YAW",   0 );
+  lcdDrawText(x, y+FH*2 + 2, "ROLL",  0 );
+  lcdDrawText(x, y+FH*3 + 2, "PITCH", 0 );
+  lcdDrawText(x, y+FH*4 + 2, "YAW",   0 );
 
   uint8_t pidNumStartX = x + FW*6;
   uint8_t pidNumStartY = y + FH*2;
+
+  page.updateState();
 
   page.handleSelectedPositionInput(event);
 
@@ -184,7 +349,7 @@ void drawPIDsPage( BFPage& page, event_t event )
       bool selectedField = page.selectedPos == i && page.editMode > EDIT_SELECT_MENU;
       LcdFlags attr = (selectedField ? (page.editMode>0 ? BLINK|INVERS : INVERS) : 0);
 
-      if( selectedField )
+      if( selectedField && connected && page.state == PAGE_LOADED)
       {
         page.handleFieldEditing(event);
 
@@ -194,40 +359,73 @@ void drawPIDsPage( BFPage& page, event_t event )
             switch (event)
             {
               case EVT_KEY_FIRST(KEY_DOWN):
-                --pids[axis][t];
+                --bfConfig.pids[axis][t];
+                AUDIO_KEY_PRESS();
                 break;
 
               case EVT_KEY_FIRST(KEY_UP):
-                ++pids[axis][t];
+                ++bfConfig.pids[axis][t];
+                AUDIO_KEY_PRESS();
                 break;
             }
 
-            pids[axis][t] %= 255;
+            bfConfig.pids[axis][t] %= 255;
             break;
         }
       }
 
-      lcdDrawNumber(
-        pidNumStartX + t*step,
-        pidNumStartY + axis*(FH + 2),
-        pids[axis][t],
-        attr);
+      if (page.state != PAGE_LOADED)
+      {
+        lcdDrawText(
+          pidNumStartX + t*step,
+          pidNumStartY + axis*(FH + 2),
+          "--",
+          0);
+      }
+      else
+      {
+        lcdDrawNumber(
+          pidNumStartX + t*step,
+          pidNumStartY + axis*(FH + 2),
+          bfConfig.pids[axis][t],
+          attr);
+      }
     }
   }
 }
 
-//assert( sizeof(pageNames) == NUM_BF_PAGES);
-
+//
+//
+void drawHeaderInfo(event_t event)
+{
+  int start = strlen(BF_MENU_TITLE) + 1;
+  if (connected)
+  {
+    char buffer[64];
+    sprintf(buffer, "(C, sp:%d, rp:%d)", mspEncoder.isComplete(), mspDecoder.getMessageSize());
+    lcdDrawText(start * FW, 0, buffer);
+  }
+  else
+  {
+    lcdDrawText(start * FW, 0, "(NO TELEMETRY)", BLINK);
+  }
+}
 
 
 void menuModelBetaflightMspSmartPort(event_t event)
 {
+  drawHeaderInfo(event);
+
   SIMPLE_MENU(
-    "Betaflight",
+    BF_MENU_TITLE,
     menuTabModel,
     MENU_MODEL_BETAFLIGHT_MSP_SMARTPORT,
     NUM_BF_PAGES
   );
+
+#ifdef BETAFLIGHT_MSP_SIMULATOR
+  initBFSimulatorConfig();
+#endif
 
   if( betaflightInputTelemetryFifo == NULL )
   {
@@ -236,6 +434,7 @@ void menuModelBetaflightMspSmartPort(event_t event)
 
   updateMessages();
   
+  // update menu position
   if( bfEditPage == -1 )
   {
     switch (event)
@@ -244,12 +443,14 @@ void menuModelBetaflightMspSmartPort(event_t event)
         ++bfMenuPos;
         killEvents(event);
         event = 0;
+        AUDIO_KEY_PRESS();
         break;
 
       case EVT_KEY_FIRST(KEY_UP):
         --bfMenuPos;
         killEvents(event);
         event = 0;
+        AUDIO_KEY_PRESS();
         break;
     }
   }
@@ -265,25 +466,36 @@ void menuModelBetaflightMspSmartPort(event_t event)
 
     lcdDrawText(0, y, page.name, selected ? (page.editMode > 0 ? BLINK|INVERS : INVERS) : 0 );
 
-    if( selected )
+    if (selected)
     {
-      if( bfEditPage == -1 )
+      // page edit mode inputs
+     
+      if (bfEditPage == -1)
       {
-        if( event == EVT_KEY_FIRST(KEY_ENTER) )
+        if (event == EVT_KEY_FIRST(KEY_ENTER) 
+          && connected 
+          && page.state == PAGE_LOADED)
         {
           bfEditPage = page.type;
           page.editMode = EDIT_SELECT_FIELD;
           event = 0;
+          AUDIO_KEY_PRESS();
         }
       }
       else
       {
-        if( page.editMode == EDIT_SELECT_FIELD
-           && event == EVT_KEY_FIRST(KEY_EXIT))
+        if (page.editMode == EDIT_SELECT_FIELD
+          && event == EVT_KEY_FIRST(KEY_EXIT) || !connected)
         {
           bfEditPage = -1;
           page.editMode = EDIT_SELECT_MENU;
-          event=0;
+          event = 0;
+          AUDIO_KEY_PRESS();
+
+          if (connected)
+          {
+            page.state = PAGE_SAVE;
+          }
         }
       }
 
