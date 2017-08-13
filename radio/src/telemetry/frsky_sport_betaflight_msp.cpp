@@ -623,6 +623,11 @@ static void smartPortSendPackageEx(uint8_t frameId, uint8_t* data)
     p[i] = data[i];
   }
 
+  if (!betaflightInputTelemetryFifo->hasSpace(sizeof(packet)))
+  {
+    return;
+  }
+
   for (uint8_t i = 0; i<sizeof(packet); i++)
   {
     betaflightInputTelemetryFifo->push(packet.raw[i]);
