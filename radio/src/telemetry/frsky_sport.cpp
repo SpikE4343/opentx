@@ -127,14 +127,13 @@ void queueTelemetryDataPacket(Fifo<T,N>* fifo, uint8_t physicalId, uint8_t primI
 {
   if (fifo == NULL)
   {
-    debugPrintf("Null fifo!\r\n");
     return;
   }
 
   uint32_t size = sizeof(SportTelemetryPacket);
-  if (fifo->hasSpace(size))
+  if (!fifo->hasSpace(size))
   {
-    debugPrintf("No Space: %u, for: %u\r\n", fifo->size(), size);
+    debugPrintf("No Space in fifo: %u, for: %u\r\n", fifo->size(), size);
     return;
   }
 

@@ -66,28 +66,15 @@ struct BFPage
   void handleFieldEditing(event_t& event);
 
   void updateState();
-  
-  bool processReply(uint8_t msgType, BFMspDecoder& decoder);
 };
-
-
 
 int bfMenuPos = 0;
 int bfEditPage = -1;
 int selectedPage = 0;
 
-BFConfig_t bfConfig;
-
-BFMspDecoder mspDecoder;
-BFMspEncoder mspEncoder;
-
-bool connected = false;
-bool sendingMessage = false;
-uint8_t messageReplyTimeout = 0;
-uint8_t sendMspMessageType = MSP_NONE;
+static BetaflightController* bf = NULL;
 
 void drawPIDsPage( BFPage& page, event_t event );
-
 
 BFPage pages[] =
 {
@@ -97,30 +84,7 @@ BFPage pages[] =
   { VTX_PAGE,      PAGE_NONE, MSP_VTX_CONFIG, MSP_VTX_SET_CONFIG, "Video Tx", NULL,          0, 0, 0 }
 };
 
-bool BFPage::processReply(uint8_t msgType, BFMspDecoder& decoder)
-{
-  if (!decoder.hasStarted() || !decoder.isComplete())
-  {
-    return false;
-  }
 
-  uint8_t* buffer = decoder.getMessageBuffer();
-  uint8_t size = decoder.getMessageSize();
-
-  switch (msgType)
-  {
-  case MSP_PID:
-    if (size >= sizeof(bfConfig.pids))
-    {
-      memcpy(&bfConfig.pids, buffer, sizeof(bfConfig.pids));
-    }
-    return true;
-  }
-
-  decoder.reset();
-
-  return true;
-}
 
 void BFPage::updateState()
 {
@@ -131,23 +95,18 @@ void BFPage::updateState()
     {
       state = PAGE_LOADED;
     }
-    else if (connected && !sendingMessage)
+    else if (bf->isConnected())
     {
-      debugPrintf("Sending message");
-      sendMspMessageType = readCmd;
-      mspEncoder.encodeMessage(readCmd, NULL, 0);
-      sendingMessage = true;
+      debugPrintf("Sending message\r\n");
+      bf->sendMessage(readCmd, NULL, 0);
       state = PAGE_LOADING;
     }
     break;
 
   case PAGE_LOADING:
-    if (connected && sendingMessage)
+    if (bf->isConnected() && bf->getMessageState() == BetaflightController::MS_IDLE)
     {
-      if (processReply(sendMspMessageType, mspDecoder))
-      {
-        state = PAGE_LOADED;
-      }
+      state = PAGE_LOADED;
     }
     break;
 
@@ -155,22 +114,35 @@ void BFPage::updateState()
     break;
 
   case PAGE_SAVE:
-    if (writeCmd != MSP_NONE && connected && !sendingMessage)
+    if (writeCmd != MSP_NONE 
+      && bf->isConnected() 
+      && bf->getMessageState() == BetaflightController::MS_IDLE)
     {
-      debugPrintf("Sending save message");
-      sendMspMessageType = writeCmd;
-      mspEncoder.encodeMessage(writeCmd, NULL, 0);
-      sendingMessage = true;
+      debugPrintf("Sending save message\r\n");
+
+      sbuf_t saveBuffer;
+      saveBuffer.ptr = bf->getMessageBuffer();
+      saveBuffer.end = saveBuffer.ptr + MSP_MSG_BUFFER_SIZE;
+
+      bf->createSaveMessage(writeCmd, &saveBuffer);
+      uint32_t size = sbufSizeBytes(&saveBuffer, MSP_MSG_BUFFER_SIZE);
+
+      sbufSwitchToReader(&saveBuffer, bf->getMessageBuffer());
+
+      bf->sendMessage(writeCmd, saveBuffer.ptr, size);
       state = PAGE_SAVING;
     }
     break;
 
   case PAGE_SAVING:
-    if (sendingMessage)
+    if (bf->getMessageState() != BetaflightController::MS_IDLE)
+    {
       state = PAGE_LOADED;
+    }
     break;
   }
 }
+
 void BFPage::handleSelectedPositionInput(event_t& event)
 {
   if( editMode != EDIT_SELECT_FIELD )
@@ -214,109 +186,6 @@ void BFPage::handleFieldEditing(event_t& event)
   }
 }
 
-
-//
-//
-bool recvMessage()
-{
-  if (betaflightInputTelemetryFifo == NULL)
-  {
-    return false;
-  }
-
-  if (betaflightInputTelemetryFifo->isEmpty())
-  {
-    return false;
-  }
-
-  uint32_t size = betaflightInputTelemetryFifo->size();
-  debugPrintf("bf-buf: %u", size);
-  SportTelemetryPacket packet;
-
-  if ( size < sizeof(packet))
-  {
-    return false;
-  }
-
-  debugPrintf("packet recv: ");
-  for (uint8_t i = 0; i<sizeof(packet); i++)
-  {
-    betaflightInputTelemetryFifo->pop(packet.raw[i]);
-    debugPrintf("%0X", packet.raw[i]);
-  }
-  debugPrintf("\r\n");
-
-
-  if (!mspDecoder.decodePacket(packet))
-  {
-    return false;
-  }
-
-  // valid msp message decoded
-  debugPrintf("message decoded!\r\n");
-
-  return true;
-}
-
-#ifdef BETAFLIGHT_MSP_SIMULATOR
-// TODO merge it with S.PORT update function when finished
-void sportOutputPushPacketSim(SportTelemetryPacket* packet)
-{
-  uint8_t buf[sizeof(SportTelemetryPacket)+1];
-  uint8_t* pos = buf+1;
-  uint16_t crc = 0;
-
-  for (uint8_t i = 1; i<sizeof(SportTelemetryPacket); i++) {
-    uint8_t byte = packet->raw[i];
-    *(pos++) = byte;
-    crc += byte; // 0-1FF
-    crc += crc >> 8; // 0-100
-    crc &= 0x00ff;
-  }
-
-  *(pos++) = 0xFF - crc;
-  buf[0] = packet->raw[0];
-
-  simHandleSmartPortMspFrame(&buf[0]);
-}
-
-#endif
-
-//
-//
-void sendMessage()
-{
-  if( mspEncoder.isComplete() )
-  {
-    return;
-  }
-
-  SportTelemetryPacket packet;
-  if( !mspEncoder.fillNextPacket(packet) )
-  {
-    return;
-  }
-  
-#ifdef BETAFLIGHT_MSP_SIMULATOR
-  sportOutputPushPacketSim(&packet);
-#else
-  sportOutputPushPacket(&packet);
-#endif
-}
-
-
-
-
-//
-//
-void updateMessages()
-{
-  connected = TELEMETRY_RSSI() > 0;
-
-  recvMessage();
-  sendMessage();
-}
-
 //
 //
 void drawPIDsPage( BFPage& page, event_t event )
@@ -351,7 +220,7 @@ void drawPIDsPage( BFPage& page, event_t event )
       bool selectedField = page.selectedPos == i && page.editMode > EDIT_SELECT_MENU;
       LcdFlags attr = (selectedField ? (page.editMode>0 ? BLINK|INVERS : INVERS) : 0);
 
-      if( selectedField && connected && page.state == PAGE_LOADED)
+      if( selectedField && bf->isConnected() && page.state == PAGE_LOADED)
       {
         page.handleFieldEditing(event);
 
@@ -361,22 +230,22 @@ void drawPIDsPage( BFPage& page, event_t event )
             switch (event)
             {
               case EVT_KEY_FIRST(KEY_DOWN):
-                --bfConfig.pids[axis][t];
+                --bf->config.pids[axis][t];
                 AUDIO_KEY_PRESS();
                 break;
 
               case EVT_KEY_FIRST(KEY_UP):
-                ++bfConfig.pids[axis][t];
+                ++bf->config.pids[axis][t];
                 AUDIO_KEY_PRESS();
                 break;
             }
 
-            bfConfig.pids[axis][t] %= 255;
+            bf->config.pids[axis][t] %= 255;
             break;
         }
       }
 
-      if (page.state != PAGE_LOADED)
+      if (page.state != PAGE_LOADED && page.state != PAGE_SAVING)
       {
         lcdDrawText(
           pidNumStartX + t*step,
@@ -389,7 +258,7 @@ void drawPIDsPage( BFPage& page, event_t event )
         lcdDrawNumber(
           pidNumStartX + t*step,
           pidNumStartY + axis*(FH + 2),
-          bfConfig.pids[axis][t],
+          bf->config.pids[axis][t],
           attr);
       }
     }
@@ -401,10 +270,16 @@ void drawPIDsPage( BFPage& page, event_t event )
 void drawHeaderInfo(event_t event)
 {
   int start = strlen(BF_MENU_TITLE) + 1;
-  if (connected)
+  if (bf != NULL && bf->isConnected())
   {
     char buffer[64];
-    sprintf(buffer, "(C, sp:%d, rp:%d)", mspEncoder.isComplete(), mspDecoder.getMessageSize());
+    sprintf(buffer, "(C, c:%d, m:%d, mt:%d, ms:%d)"
+      , bf->getConnectionState()
+      , bf->getMessageState()
+      , bf->getMessageType()
+      , bf->getMessageSize()
+    );
+
     lcdDrawText(start * FW, 0, buffer);
   }
   else
@@ -434,8 +309,13 @@ void menuModelBetaflightMspSmartPort(event_t event)
     betaflightInputTelemetryFifo = new Fifo<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE>();
   }
 
-  updateMessages();
-  
+  if (bf == NULL)
+  {
+    bf = new BetaflightController();
+  }
+
+  bf->update();
+
   // update menu position
   if( bfEditPage == -1 )
   {
@@ -475,7 +355,7 @@ void menuModelBetaflightMspSmartPort(event_t event)
       if (bfEditPage == -1)
       {
         if (event == EVT_KEY_FIRST(KEY_ENTER) 
-          && connected 
+          && bf->isConnected()
           && page.state == PAGE_LOADED)
         {
           bfEditPage = page.type;
@@ -487,14 +367,14 @@ void menuModelBetaflightMspSmartPort(event_t event)
       else
       {
         if (page.editMode == EDIT_SELECT_FIELD
-          && event == EVT_KEY_FIRST(KEY_EXIT) || !connected)
+          && event == EVT_KEY_FIRST(KEY_EXIT) || !bf->isConnected())
         {
           bfEditPage = -1;
           page.editMode = EDIT_SELECT_MENU;
           event = 0;
           AUDIO_KEY_PRESS();
 
-          if (connected)
+          if (bf->isConnected())
           {
             page.state = PAGE_SAVE;
           }
@@ -507,4 +387,213 @@ void menuModelBetaflightMspSmartPort(event_t event)
       }
     }
   }
+}
+
+
+bool BetaflightController::sendMessage(uint8_t type, uint8_t* msg, uint8_t size)
+{
+  switch (messageState)
+  {
+  case MS_IDLE:
+    if (encoder.encodeMessage(type, msg, size))
+    {
+      messageState = MS_SENDING;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+void BetaflightController::updateConnection()
+{
+  switch (connectionState)
+  {
+  case CS_NONE:
+    connectionState = CS_DISCONNECTED;
+    break;
+
+  case CS_DISCONNECTED:
+    if (TELEMETRY_RSSI() > 0)
+    {
+      connectionState = CS_CONNECTED;
+    }
+    break;
+
+  case CS_CONNECTING:
+    break;
+
+  case CS_CONNECTED:
+    if (TELEMETRY_RSSI() <= 0)
+    {
+      connectionState = CS_DISCONNECTED;
+    }
+    updateMessage();
+    break;
+
+  case CS_DISCONNECTING:
+    break;
+  }
+}
+
+void BetaflightController::updateMessage()
+{
+  switch (messageState)
+  {
+  case MS_IDLE:
+    break;
+
+  case MS_SENDING:
+    if (sendMessage())
+    {
+      messageState = MS_RECEIVING;
+    }
+
+    break;
+
+  case MS_RECEIVING:
+    if (recvMessage())
+    {
+      messageState = MS_RECEIVED;
+    }
+    break;
+
+  case MS_RECEIVED:
+    if (processReply())
+    {
+      messageState = MS_IDLE;
+    }
+    break;
+  }
+}
+
+void BetaflightController::update()
+{
+  updateConnection();
+}
+
+//
+//
+bool BetaflightController::recvMessage()
+{
+  if (betaflightInputTelemetryFifo == NULL)
+  {
+    return false;
+  }
+
+  if (betaflightInputTelemetryFifo->isEmpty())
+  {
+    return false;
+  }
+
+  uint32_t size = betaflightInputTelemetryFifo->size();
+  debugPrintf("bf-buf: %u", size);
+  SportTelemetryPacket packet;
+
+  if (size < sizeof(packet))
+  {
+    return false;
+  }
+
+  debugPrintf("packet recv: ");
+  for (uint8_t i = 0; i<sizeof(packet); i++)
+  {
+    betaflightInputTelemetryFifo->pop(packet.raw[i]);
+    debugPrintf("%0X", packet.raw[i]);
+  }
+  debugPrintf("\r\n");
+
+
+  if (!decoder.decodePacket(packet))
+  {
+    return false;
+  }
+
+  // valid msp message decoded
+  debugPrintf("message decoded!\r\n");
+
+  return true;
+}
+
+#ifdef BETAFLIGHT_MSP_SIMULATOR
+// TODO merge it with S.PORT update function when finished
+void sportOutputPushPacketSim(SportTelemetryPacket* packet)
+{
+  uint8_t buf[sizeof(SportTelemetryPacket) + 1];
+  uint8_t* pos = buf + 1;
+  uint16_t crc = 0;
+
+  for (uint8_t i = 1; i<sizeof(SportTelemetryPacket); i++) {
+    uint8_t byte = packet->raw[i];
+    *(pos++) = byte;
+    crc += byte; // 0-1FF
+    crc += crc >> 8; // 0-100
+    crc &= 0x00ff;
+  }
+
+  *(pos++) = 0xFF - crc;
+  buf[0] = packet->raw[0];
+
+  simHandleSmartPortMspFrame(&buf[0]);
+}
+
+#endif
+
+//
+//
+bool BetaflightController::sendMessage()
+{
+  if (encoder.isComplete())
+  {
+    return false;
+  }
+
+  SportTelemetryPacket packet;
+  if (!encoder.fillNextPacket(packet))
+  {
+    return false;
+  }
+
+#ifdef BETAFLIGHT_MSP_SIMULATOR
+  sportOutputPushPacketSim(&packet);
+#else
+  sportOutputPushPacket(&packet);
+#endif
+  return true;
+}
+
+bool BetaflightController::createSaveMessage(uint8_t msgType, sbuf_t* buf)
+{
+  switch (msgType)
+  {
+  case MSP_SET_PID:
+    sbufWriteData(buf, &bf->config.pids, sizeof(bf->config.pids));
+    return true;
+
+  default:
+    return false;
+  }
+
+  return true;
+}
+
+bool BetaflightController::processReply()
+{
+  uint8_t* buffer = decoder.getMessageBuffer();
+  uint8_t size = decoder.getMessageSize();
+
+  switch (messageType)
+  {
+  case MSP_PID:
+    if (size >= sizeof(bf->config.pids))
+    {
+      memcpy(&bf->config.pids, buffer, sizeof(bf->config.pids));
+    }
+    return true;
+  }
+
+  decoder.reset();
+
+  return true;
 }

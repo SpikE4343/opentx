@@ -45,6 +45,39 @@
 #define REQUEST_FRAME_ID 0x30
 #define REPLY_FRAME_ID   0x32
 
+// simple buffer-based serializer/deserializer without implicit size check
+// little-endian encoding implemneted now
+
+typedef struct sbuf_s {
+  uint8_t *ptr;          // data pointer must be first (sbuff_t* is equivalent to uint8_t **)
+  uint8_t *end;
+} sbuf_t;
+
+void sbufWriteU8(sbuf_t *dst, uint8_t val);
+void sbufWriteU16(sbuf_t *dst, uint16_t val);
+void sbufWriteU32(sbuf_t *dst, uint32_t val);
+void sbufWriteU16BigEndian(sbuf_t *dst, uint16_t val);
+void sbufWriteU32BigEndian(sbuf_t *dst, uint32_t val);
+void sbufWriteData(sbuf_t *dst, const void *data, int len);
+void sbufWriteString(sbuf_t *dst, const char *string);
+
+uint8_t sbufReadU8(sbuf_t *src);
+uint16_t sbufReadU16(sbuf_t *src);
+uint32_t sbufReadU32(sbuf_t *src);
+void sbufReadData(sbuf_t *dst, void *data, int len);
+
+int sbufBytesRemaining(sbuf_t *buf);
+int sbufSizeBytes(sbuf_t *buf, int totalSize);
+
+uint8_t* sbufPtr(sbuf_t *buf);
+const uint8_t* sbufConstPtr(const sbuf_t *buf);
+void sbufAdvance(sbuf_t *buf, int size);
+
+void sbufSwitchToReader(sbuf_t *buf, uint8_t * base);
+
+
+
+
 struct BFConfigVTX_t
 {
   uint8_t deviceType;
@@ -75,6 +108,9 @@ struct BFConfig_t
   BFConfigVTX_t videoTx;
 };
 
+
+
+
 enum BFMspDecodeState
 {
     BF_MSP_DECODE_NONE,
@@ -104,10 +140,10 @@ private:
   uint8_t messageSize;
  
   uint8_t messageBufferPosition;
-  uint8_t messageBuffer[MSP_MSG_BUFFER_SIZE];
+  uint8_t* messageBuffer;
 
 public:
-  BFMspDecoder() 
+  BFMspDecoder(uint8_t* buffer) 
     : started(false)
     , complete(false)
     , state(BF_MSP_DECODE_NONE)
@@ -122,6 +158,7 @@ public:
     , messageCrc(0)
     , messageSize(0)
     , messageBufferPosition(0)
+    , messageBuffer(buffer)
   {
     
   }
@@ -189,6 +226,74 @@ private:
 };
 
 //static BFMspDecoder* s_msp = NULL;
+
+
+class BetaflightController
+{
+public:
+  enum MessageStateType
+  {
+    MS_IDLE,
+    MS_SENDING,
+    MS_RECEIVING,
+    MS_RECEIVED
+  };
+
+  enum ConnectionStateType
+  {
+    CS_NONE,
+    CS_DISCONNECTED,
+    CS_CONNECTING,
+    CS_CONNECTED,
+    CS_DISCONNECTING
+  };
+
+  BetaflightController()
+    : messageState(MS_IDLE)
+    , connectionState(CS_NONE)
+    , messageType(MSP_NONE)
+    , decoder(&messageBuffer[0])
+    , messageSize(0)
+  {
+  }
+
+  BFConfig_t config;
+ 
+public:
+
+  void update();
+  bool createSaveMessage(uint8_t msgType, sbuf_t* buf);
+  bool sendMessage(uint8_t type, uint8_t* msg, uint8_t size);
+
+  uint8_t getMessageType() const { return messageType; }
+  uint8_t* getMessageBuffer() { return messageBuffer; }
+  uint8_t getMessageSize() const { return messageSize; }
+
+  bool isConnected() const { return connectionState == CS_CONNECTED; }
+
+  ConnectionStateType getConnectionState() const { return connectionState; }
+  MessageStateType getMessageState() const { return messageState; }
+
+private:
+
+  bool sendMessage();
+  bool recvMessage();
+
+  void updateConnection();
+  void updateMessage();
+
+  bool processReply();
+
+  uint8_t messageType = MSP_NONE;
+  uint8_t messageBuffer[MSP_MSG_BUFFER_SIZE];
+  uint8_t messageSize;
+
+  ConnectionStateType connectionState;
+  MessageStateType messageState;
+ 
+  BFMspDecoder decoder;
+  BFMspEncoder encoder;
+};
 
 
 #ifdef BETAFLIGHT_MSP_SIMULATOR

@@ -101,12 +101,12 @@ bool BFMspEncoder::fillNextPacket(SportTelemetryPacket & packet)
   mspHeader.sequence = messageSequence++;
   packet.physicalId = getLuaDataId(LOCAL_SENSOR_ID);
   packet.primId = REQUEST_FRAME_ID;
+  mspHeader.version = SPORT_MSP_VERSION;
 
   if (mspHeader.sequence == 0)
   {
     // first packet
     mspHeader.start = true;
-    mspHeader.version = SPORT_MSP_VERSION;
     // add second byte of full message size
     packet.raw[pos++] = messageSize;
     packet.raw[pos++] = mspMessageType;
@@ -242,35 +242,9 @@ bool BFMspDecoder::decodePacket(SportTelemetryPacket& packet)
 }
 
 
-#ifdef BETAFLIGHT_MSP_SIMULATOR
 
-// simple buffer-based serializer/deserializer without implicit size check
-// little-endian encoding implemneted now
 
-typedef struct sbuf_s {
-  uint8_t *ptr;          // data pointer must be first (sbuff_t* is equivalent to uint8_t **)
-  uint8_t *end;
-} sbuf_t;
 
-void sbufWriteU8(sbuf_t *dst, uint8_t val);
-void sbufWriteU16(sbuf_t *dst, uint16_t val);
-void sbufWriteU32(sbuf_t *dst, uint32_t val);
-void sbufWriteU16BigEndian(sbuf_t *dst, uint16_t val);
-void sbufWriteU32BigEndian(sbuf_t *dst, uint32_t val);
-void sbufWriteData(sbuf_t *dst, const void *data, int len);
-void sbufWriteString(sbuf_t *dst, const char *string);
-
-uint8_t sbufReadU8(sbuf_t *src);
-uint16_t sbufReadU16(sbuf_t *src);
-uint32_t sbufReadU32(sbuf_t *src);
-void sbufReadData(sbuf_t *dst, void *data, int len);
-
-int sbufBytesRemaining(sbuf_t *buf);
-uint8_t* sbufPtr(sbuf_t *buf);
-const uint8_t* sbufConstPtr(const sbuf_t *buf);
-void sbufAdvance(sbuf_t *buf, int size);
-
-void sbufSwitchToReader(sbuf_t *buf, uint8_t * base);
 
 
 void sbufWriteU8(sbuf_t *dst, uint8_t val)
@@ -353,6 +327,11 @@ int sbufBytesRemaining(sbuf_t *buf)
   return buf->end - buf->ptr;
 }
 
+int sbufSizeBytes(sbuf_t *buf, int totalSize)
+{
+  return totalSize - sbufBytesRemaining(buf);
+}
+
 uint8_t* sbufPtr(sbuf_t *buf)
 {
   return buf->ptr;
@@ -378,6 +357,7 @@ void sbufSwitchToReader(sbuf_t *buf, uint8_t *base)
   buf->ptr = base;
 }
 
+#ifdef BETAFLIGHT_MSP_SIMULATOR
 
 /*
 * SmartPort Telemetry implementation by frank26080115
