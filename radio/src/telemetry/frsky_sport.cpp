@@ -241,9 +241,8 @@ void sportProcessTelemetryPacket(const uint8_t * packet)
         }
         else if (id >= DIY_STREAM_FIRST_ID && id <= DIY_STREAM_LAST_ID) {
 #if defined(LUA)
-          
-          //queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
-          queueTelemetryDataPacket<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE>(betaflightInputTelemetryFifo, physicalId, primId, id, data );
+          queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
+          queueTelemetryDataPacket(betaflightInputTelemetryFifo, physicalId, primId, id, data );
 #endif
         }
         else {
@@ -255,8 +254,8 @@ void sportProcessTelemetryPacket(const uint8_t * packet)
 #if defined(LUA)
   else if (primId == 0x32) {
     //debugPrintf("Queuing msp packet\r\n");
-    //queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
-    queueTelemetryDataPacket<uint8_t, BETAFLIGHT_TELEMETRY_INPUT_FIFO_SIZE>(betaflightInputTelemetryFifo, physicalId, primId, id, data );
+    queueTelemetryDataPacket(luaInputTelemetryFifo, physicalId, primId, id, data );
+    queueTelemetryDataPacket(betaflightInputTelemetryFifo, physicalId, primId, id, data );
   }
 #endif
 }

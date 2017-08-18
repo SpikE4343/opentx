@@ -585,6 +585,7 @@ static int mspFcProcessCommand(mspPacket_t* packet, mspPacket_t* reply)
     break;
   }
 
+  debugPrintf("bf-sim: processed command: %d, result: %d", packet->cmd, reply->result);
   return reply->result;
 }
 

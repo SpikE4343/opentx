@@ -161,7 +161,7 @@ void BFPage::handleSelectedPositionInput(event_t& event)
       break;
   }
 
-  selectedPos %= maxPos;
+  selectedPos = abs(selectedPos >= maxPos ? 0 : selectedPos % maxPos);
 }
 
 void BFPage::handleFieldEditing(event_t& event)
@@ -250,7 +250,7 @@ void drawPIDsPage( BFPage& page, event_t event )
         lcdDrawText(
           pidNumStartX + t*step,
           pidNumStartY + axis*(FH + 2),
-          "--",
+          "---",
           0);
       }
       else
@@ -337,7 +337,7 @@ void menuModelBetaflightMspSmartPort(event_t event)
     }
   }
 
-  bfMenuPos %= NUM_BF_PAGES;
+  bfMenuPos = abs(bfMenuPos >= NUM_BF_PAGES ? 0 : bfMenuPos % NUM_BF_PAGES);
 
   for( int p=0; p < NUM_BF_PAGES; ++p )
   {
@@ -392,6 +392,7 @@ void menuModelBetaflightMspSmartPort(event_t event)
 
 bool BetaflightController::sendMessage(uint8_t type, uint8_t* msg, uint8_t size)
 {
+  messageType = type;
   switch (messageState)
   {
   case MS_IDLE:
@@ -445,7 +446,7 @@ void BetaflightController::updateMessage()
     break;
 
   case MS_SENDING:
-    if (sendMessage())
+    if (!sendMessage())
     {
       messageState = MS_RECEIVING;
     }
@@ -463,6 +464,7 @@ void BetaflightController::updateMessage()
     if (processReply())
     {
       messageState = MS_IDLE;
+      messageType = MSP_NONE;
     }
     break;
   }
@@ -590,7 +592,7 @@ bool BetaflightController::processReply()
     {
       memcpy(&bf->config.pids, buffer, sizeof(bf->config.pids));
     }
-    return true;
+    break;
   }
 
   decoder.reset();

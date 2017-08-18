@@ -24,7 +24,7 @@
 #ifndef BETAFLIGHT_MSP_H
 #define BETAFLIGHT_MSP_H
 
-#define BETAFLIGHT_MSP_SIMULATOR
+//#define BETAFLIGHT_MSP_SIMULATOR
 
 #include "opentx.h"
 #include "betaflight_msp_msgs.h"
