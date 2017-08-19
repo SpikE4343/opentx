@@ -221,7 +221,6 @@ public:
   // no more packets are needed
   bool fillNextPacket(SportTelemetryPacket& packet);
 
-private:
   void reset();
 };
 
@@ -233,6 +232,7 @@ class BetaflightController
 public:
   enum MessageStateType
   {
+    MS_DISABLED,
     MS_IDLE,
     MS_SENDING,
     MS_RECEIVING,

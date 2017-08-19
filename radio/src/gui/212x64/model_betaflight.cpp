@@ -66,6 +66,7 @@ struct BFPage
   void handleFieldEditing(event_t& event);
 
   void updateState();
+  void reload();
 };
 
 int bfMenuPos = 0;
@@ -141,6 +142,13 @@ void BFPage::updateState()
     }
     break;
   }
+}
+
+void BFPage::reload()
+{
+  state = PAGE_NONE;
+  editMode = EDIT_SELECT_MENU;
+  selectedPos = 0;
 }
 
 void BFPage::handleSelectedPositionInput(event_t& event)
@@ -419,6 +427,7 @@ void BetaflightController::updateConnection()
     if (TELEMETRY_RSSI() > 0)
     {
       connectionState = CS_CONNECTED;
+      messageState = MS_IDLE;
     }
     break;
 
@@ -429,6 +438,11 @@ void BetaflightController::updateConnection()
     if (TELEMETRY_RSSI() <= 0)
     {
       connectionState = CS_DISCONNECTED;
+      messageState = MS_DISABLED;
+      encoder.reset();
+      decoder.reset();
+
+      pages[bfMenuPos].reload();
     }
     updateMessage();
     break;
