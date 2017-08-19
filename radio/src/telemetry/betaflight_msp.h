@@ -288,6 +288,8 @@ private:
   uint8_t messageBuffer[MSP_MSG_BUFFER_SIZE];
   uint8_t messageSize;
 
+  uint16_t messageTimeout;
+
   ConnectionStateType connectionState;
   MessageStateType messageState;
  

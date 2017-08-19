@@ -457,6 +457,7 @@ void BetaflightController::updateMessage()
   switch (messageState)
   {
   case MS_IDLE:
+    messageTimeout = 0;
     break;
 
   case MS_SENDING:
@@ -471,6 +472,15 @@ void BetaflightController::updateMessage()
     if (recvMessage())
     {
       messageState = MS_RECEIVED;
+    }
+    else if (++messageTimeout >= 2000)
+    {
+      messageTimeout = 0;
+      messageState = MS_IDLE;
+      messageType = MSP_NONE;
+      messageSize = 0;
+      encoder.reset();
+      decoder.reset();
     }
     break;
 
