@@ -50,14 +50,33 @@ struct BFPage;
 
 typedef void (*drawPage_t)( BFPage& page, event_t event );
 
-struct BFPage
+class BFPage
 {
+public:
+  BFPage(
+    const char* _name,
+    BFPageType _type,
+    BFMspMessageType _readCmd, 
+    BFMspMessageType _writeCmd,
+    int _editMode,
+    int _selectedPos,
+    int _maxPos)    
+  : type(_type)
+  , state(PAGE_NONE)
+  , readCmd(_readCmd)
+  , writeCmd(_writeCmd)
+  , name(_name)
+  , editMode(_editMode)
+  , selectedPos(_selectedPos)
+  , maxPos(_maxPos)
+  {}
+
   BFPageType type;
   BFPageState state;
-  BFMspMessageType readCmd;
-  BFMspMessageType writeCmd;
+  BFMspMessageType readCmd; // TODO: array of commands
+  BFMspMessageType writeCmd; // TODO: array of commands
   const char* name;
-  drawPage_t drawPage;
+
   int editMode;
   int selectedPos;
   int maxPos;
@@ -67,6 +86,18 @@ struct BFPage
 
   void updateState();
   void reload();
+  virtual void draw(event_t event);
+};
+
+class BFPidsPage : public BFPage
+{
+public:
+  BFPidsPage()
+  : BFPage("PIDs    ", PIDS_PAGE, MSP_PID, MSP_SET_PID, 0, 0, 9)
+  {
+
+  }
+  virtual void draw(event_t event);
 };
 
 int bfMenuPos = 0;
@@ -75,17 +106,13 @@ int selectedPage = 0;
 
 static BetaflightController* bf = NULL;
 
-void drawPIDsPage( BFPage& page, event_t event );
-
-BFPage pages[] =
+BFPage* pages[] =
 {
-  { PIDS_PAGE,     PAGE_NONE, MSP_PID,        MSP_SET_PID,        "PIDs    ", drawPIDsPage,  0, 0, 9 },
-  { RATES_PAGE,    PAGE_NONE, MSP_RC_TUNING,  MSP_SET_RC_TUNING,  "Rates   ", NULL,          0, 0, 0 },
-  { THROTTLE_PAGE, PAGE_NONE, MSP_NONE,       MSP_NONE,           "Throttle", NULL,          0, 0, 0 },
-  { VTX_PAGE,      PAGE_NONE, MSP_VTX_CONFIG, MSP_VTX_SET_CONFIG, "Video Tx", NULL,          0, 0, 0 }
+  new BFPidsPage(),
+  new BFPage("Rates   ", RATES_PAGE,    MSP_RC_TUNING,   MSP_SET_RC_TUNING,  0, 0 ,0),
+  new BFPage("Throttle", THROTTLE_PAGE, MSP_NONE,        MSP_NONE,           0, 0 ,0),
+  new BFPage("Video Tx", VTX_PAGE,      MSP_VTX_CONFIG,  MSP_VTX_SET_CONFIG, 0, 0 ,0)
 };
-
-
 
 void BFPage::updateState()
 {
@@ -177,7 +204,7 @@ void BFPage::handleFieldEditing(event_t& event)
   switch( editMode )
   {
     case EDIT_SELECT_FIELD:
-      if( event == EVT_KEY_LONG(KEY_ENTER))
+      if( event == EVT_KEY_FIRST(KEY_ENTER))
       {
         editMode = EDIT_MODIFY_FIELD;
       }
@@ -185,8 +212,8 @@ void BFPage::handleFieldEditing(event_t& event)
     case EDIT_MODIFY_FIELD:
       switch (event)
       {
-        case EVT_KEY_LONG(KEY_ENTER):
-        case EVT_KEY_LONG(KEY_EXIT):
+        case EVT_KEY_FIRST(KEY_ENTER):
+        case EVT_KEY_FIRST(KEY_EXIT):
           editMode = EDIT_SELECT_FIELD;
           break;
       }
@@ -194,9 +221,14 @@ void BFPage::handleFieldEditing(event_t& event)
   }
 }
 
+void BFPage::draw(event_t event)
+{
+
+}
+
+// PIDS Page
 //
-//
-void drawPIDsPage( BFPage& page, event_t event )
+void BFPidsPage::draw( event_t event )
 {
 //  SIMPLE_SUBMENU( "Betaflight > PIDs", 9);
   
@@ -216,23 +248,22 @@ void drawPIDsPage( BFPage& page, event_t event )
   uint8_t pidNumStartX = x + FW*6;
   uint8_t pidNumStartY = y + FH*2;
 
-  page.updateState();
-
-  page.handleSelectedPositionInput(event);
+  updateState();
+  handleSelectedPositionInput(event);
 
   for( int axis=0; axis < 3; ++axis)
   {
     for( int t=0; t < 3; ++t )
     {
       int i = t * 3 + axis;
-      bool selectedField = page.selectedPos == i && page.editMode > EDIT_SELECT_MENU;
-      LcdFlags attr = (selectedField ? (page.editMode>0 ? BLINK|INVERS : INVERS) : 0);
+      bool selectedField = selectedPos == i && editMode > EDIT_SELECT_MENU;
+      LcdFlags attr = (selectedField ? (editMode>0 ? BLINK|INVERS : INVERS) : 0);
 
-      if( selectedField && bf->isConnected() && page.state == PAGE_LOADED)
+      if( selectedField && bf->isConnected() && state == PAGE_LOADED)
       {
-        page.handleFieldEditing(event);
+        handleFieldEditing(event);
 
-        switch( page.editMode )
+        switch( editMode )
         {
           case EDIT_MODIFY_FIELD:
             switch (event)
@@ -253,7 +284,7 @@ void drawPIDsPage( BFPage& page, event_t event )
         }
       }
 
-      if (page.state != PAGE_LOADED && page.state != PAGE_SAVING)
+      if (state != PAGE_LOADED && state != PAGE_SAVING)
       {
         lcdDrawText(
           pidNumStartX + t*step,
@@ -349,7 +380,7 @@ void menuModelBetaflightMspSmartPort(event_t event)
 
   for( int p=0; p < NUM_BF_PAGES; ++p )
   {
-    BFPage& page = pages[p];
+    BFPage& page = *(pages[p]);
     int i = p + menuVerticalOffset;
     coord_t y = MENU_HEADER_HEIGHT + 1 + p*FH;
     bool selected = bfMenuPos == p;
@@ -388,11 +419,8 @@ void menuModelBetaflightMspSmartPort(event_t event)
           }
         }
       }
-
-      if( page.drawPage != NULL)
-      {
-        page.drawPage(page, event);
-      }
+      
+      page.draw(event);
     }
   }
 }
@@ -442,7 +470,7 @@ void BetaflightController::updateConnection()
       encoder.reset();
       decoder.reset();
 
-      pages[bfMenuPos].reload();
+      pages[bfMenuPos]->reload();
     }
     updateMessage();
     break;
@@ -473,15 +501,15 @@ void BetaflightController::updateMessage()
     {
       messageState = MS_RECEIVED;
     }
-   /* else if (++messageTimeout >= 20)
-    {
-      messageTimeout = 0;
-      messageState = MS_IDLE;
-      messageType = MSP_NONE;
-      messageSize = 0;
-      encoder.reset();
-      decoder.reset();
-    }*/
+    // else if (++messageTimeout >= 20)
+    // {
+    //   messageTimeout = 0;
+    //   messageState = MS_IDLE;
+    //   messageType = MSP_NONE;
+    //   messageSize = 0;
+    //   encoder.reset();
+    //   decoder.reset();
+    // }
     break;
 
   case MS_RECEIVED:
