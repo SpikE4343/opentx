@@ -473,7 +473,7 @@ void BetaflightController::updateMessage()
     {
       messageState = MS_RECEIVED;
     }
-    else if (++messageTimeout >= 2000)
+   /* else if (++messageTimeout >= 20)
     {
       messageTimeout = 0;
       messageState = MS_IDLE;
@@ -481,7 +481,7 @@ void BetaflightController::updateMessage()
       messageSize = 0;
       encoder.reset();
       decoder.reset();
-    }
+    }*/
     break;
 
   case MS_RECEIVED:
