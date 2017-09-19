@@ -546,6 +546,8 @@ void initBFSimulatorConfig()
 
   initialized = true;
 
+  memset(&simConfig, 0, sizeof(simConfig));
+  
   // TODO: gui to edit config
   for (int d = 0; d < PID_ITEM_COUNT; ++d)
   {
@@ -559,24 +561,71 @@ static int mspFcProcessCommand(mspPacket_t* packet, mspPacket_t* reply)
 {
   reply->cmd = packet->cmd;
   reply->result = MSP_RESULT_ACK;
+  sbuf_t* src = &packet->buf;
+  sbuf_t* dst = &reply->buf;
 
   switch (packet->cmd)
   {
   case MSP_PID:
     for (int i = 0; i < PID_ITEM_COUNT; i++) 
     {
-      sbufWriteU8(&reply->buf, simConfig.pids[i][0]);
-      sbufWriteU8(&reply->buf, simConfig.pids[i][1]);
-      sbufWriteU8(&reply->buf, simConfig.pids[i][2]);
+      sbufWriteU8(dst, simConfig.pids[i][0]);
+      sbufWriteU8(dst, simConfig.pids[i][1]);
+      sbufWriteU8(dst, simConfig.pids[i][2]);
     }
     break;
 
   case MSP_SET_PID:
     for (int i = 0; i < PID_ITEM_COUNT; i++)
     {
-      simConfig.pids[i][0] = sbufReadU8(&reply->buf);
-      simConfig.pids[i][1] = sbufReadU8(&reply->buf);
-      simConfig.pids[i][2] = sbufReadU8(&reply->buf);
+      simConfig.pids[i][0] = sbufReadU8(src);
+      simConfig.pids[i][1] = sbufReadU8(src);
+      simConfig.pids[i][2] = sbufReadU8(src);
+    }
+    break;
+
+  case MSP_RC_TUNING:
+    sbufWriteU8(dst, simConfig.rcRate);
+    sbufWriteU8(dst, simConfig.rcExpo);
+    for (int i = 0 ; i < 3; i++) {
+        sbufWriteU8(dst, simConfig.rates[i]); // R,P,Y see flight_dynamics_index_t
+    }
+    sbufWriteU8(dst, simConfig.dynThrPID);
+    sbufWriteU8(dst, simConfig.thrMid8);
+    sbufWriteU8(dst, simConfig.thrExpo8);
+    sbufWriteU16(dst, simConfig.tpa_breakpoint);
+    sbufWriteU8(dst, simConfig.rcYawExpo8);
+    sbufWriteU8(dst, simConfig.rcYawRate8);
+    break;
+
+  case MSP_SET_RC_TUNING:
+    if (sbufBytesRemaining(src) >= 10) 
+    {
+        simConfig.rcRate = sbufReadU8(src);
+        simConfig.rcExpo = sbufReadU8(src);
+        for (int i = 0; i < 3; i++) 
+        {
+            simConfig.rates[i] = sbufReadU8(src);
+        }
+
+        //value = sbufReadU8(src);
+        simConfig.dynThrPID = sbufReadU8(src); //MIN(value, CONTROL_RATE_CONFIG_TPA_MAX);
+        simConfig.thrMid = sbufReadU8(src);
+        simConfig.thrExpo = sbufReadU8(src);
+        simConfig.tpa_breakpoint = sbufReadU16(src);
+        if (sbufBytesRemaining(src) >= 1) 
+        {
+            simConfig.rcYawExpo = sbufReadU8(src);
+        }
+        if (sbufBytesRemaining(src) >= 1) 
+        {
+            simConfig.rcYawRate = sbufReadU8(src);
+        }
+        //generateThrottleCurve();
+    } 
+    else 
+    {
+        reply->result = MSP_RESULT_ERROR;
     }
     break;
 
